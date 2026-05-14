@@ -70,16 +70,6 @@ _CSS = """
     p  { color: #cbd5e1; }
     hr { border-color: #2d3748; }
     
-    /* WYWALENIE PASKA I MENU STREAMLITA */
-    [data-testid="stHeader"] {
-        visibility: hidden;
-        height: 0%;
-    }
-    
-    #MainMenu {
-        visibility: hidden;
-    }
-    
     footer {
         visibility: hidden;
     }

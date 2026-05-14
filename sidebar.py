@@ -18,11 +18,10 @@ class Filters:
 
 def render(all_cities: list[str], all_months_sale: list[str], sale_df_full) -> Filters:
     with st.sidebar:
-        st.markdown("## 🏠 Panel Filtrów")
+        st.markdown("## Panel Filtrów")
         st.markdown("---")
 
-        # ── Miasta ──────────────────────────────────────────────────────────
-        st.markdown("### 🏙️ Miasta")
+        st.markdown("### Miasta")
         if st.checkbox("Wszystkie miasta", value=True):
             cities = all_cities
         else:
@@ -33,9 +32,8 @@ def render(all_cities: list[str], all_months_sale: list[str], sale_df_full) -> F
                 default=[c for c in default if c in all_cities] or all_cities,
             ) or all_cities
 
-        # ── Okres ───────────────────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("### 📅 Okres (sprzedaż)")
+        st.markdown("### Okres (sprzedaż)")
 
         if all_months_sale:
             labels = [MONTH_NAMES.get(k, k) for k in all_months_sale]
@@ -50,20 +48,17 @@ def render(all_cities: list[str], all_months_sale: list[str], sale_df_full) -> F
         else:
             months_sale = []
 
-        # ── Typ budynku ──────────────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("### 🏗️ Typ budynku")
+        st.markdown("### Typ budynku")
         all_types = ["Blok", "Kamienica", "Apartamentowiec", "Inne"]
         building_types = st.multiselect("Typ", options=all_types, default=all_types) or all_types
 
-        # ── Pokoje ───────────────────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("### 🚪 Liczba pokoi")
+        st.markdown("### Liczba pokoi")
         room_range = st.slider("Pokoje", min_value=1, max_value=6, value=(1, 6))
 
-        # ── Cena/m² ──────────────────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("### 💰 Cena (zł/m²)")
+        st.markdown("### Cena (zł/m²)")
         ppsqm_max = (
             int(sale_df_full["pricePerSqm"].quantile(0.99))
             if not sale_df_full.empty
@@ -78,13 +73,11 @@ def render(all_cities: list[str], all_months_sale: list[str], sale_df_full) -> F
             format="%d zł",
         )
 
-        # ── Metraż ───────────────────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("### 📐 Metraż (m²)")
+        st.markdown("### Metraż (m²)")
         sqm_range = st.slider("Metraż", min_value=20, max_value=150, value=(20, 150), step=5)
 
         st.markdown("---")
-        st.caption("📊 Dane: Otodom Analytics\n🗓️ Okres: VIII 2023 – VI 2024\n🏙️ 15 największych miast Polski")
 
     return Filters(
         cities=cities,

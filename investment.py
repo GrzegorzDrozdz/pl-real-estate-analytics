@@ -8,30 +8,27 @@ from config import MONTH_NAMES
 
 def render(sale_df_full, rent_df_full, sale_df, rent_df):
     if sale_df_full.empty or rent_df_full.empty:
-        st.warning("⚠️ Brak dostępnych danych z rynków sprzedaży lub wynajmu do zestawienia parametrów inwestycyjnych.")
+        st.warning("⚠️ Brak dostępnych danych do zestawienia parametrów inwestycyjnych.")
         return
 
-    common_months = sorted(set(sale_df["month_key"].unique()) & set(rent_df["month_key"].unique()))
     common_cities = sorted(set(sale_df["city_pl"].unique()) & set(rent_df["city_pl"].unique()))
 
     if not common_cities:
-        st.warning("⚠️ Brak wspólnych miast w obu zbiorach danych dla wybranych filtrów.")
+        st.warning("⚠️ Brak wspólnych miast w obu zbiorach danych.")
         return
 
-    st.markdown('<h3 style="color: #3b82f6;">Porównanie: Cena zakupu vs Czynsz miesięczny</h3>', unsafe_allow_html=True)
+    st.markdown('<p class="section-header">Analiza Rentowności Inwestycji</p>', unsafe_allow_html=True)
 
-    sale_city_m = (
-        sale_df[sale_df["city_pl"].isin(common_cities)]
-        .groupby("city_pl")
-        .agg(med_sale_psqm=("pricePerSqm", "median"), med_sale_price=("price", "median"))
-        .reset_index()
-    )
-    rent_city_m = (
-        rent_df[rent_df["city_pl"].isin(common_cities)]
-        .groupby("city_pl")
-        .agg(med_rent_psqm=("pricePerSqm", "median"), med_rent=("price", "median"))
-        .reset_index()
-    )
+    sale_city_m = sale_df[sale_df["city_pl"].isin(common_cities)].groupby("city_pl").agg(
+        med_sale_psqm=("pricePerSqm", "median"),
+        med_sale_price=("price", "median")
+    ).reset_index()
+
+    rent_city_m = rent_df[rent_df["city_pl"].isin(common_cities)].groupby("city_pl").agg(
+        med_rent_psqm=("pricePerSqm", "median"),
+        med_rent=("price", "median")
+    ).reset_index()
+
     combined = sale_city_m.merge(rent_city_m, on="city_pl")
     combined["gross_yield"] = (combined["med_rent"] * 12) / combined["med_sale_price"] * 100
     combined["payback_years"] = combined["med_sale_price"] / (combined["med_rent"] * 12)
@@ -41,111 +38,157 @@ def render(sale_df_full, rent_df_full, sale_df, rent_df):
     with col_rv1:
         df_yield = combined.sort_values("gross_yield", ascending=True)
         fig_yield = px.bar(
-            df_yield,
-            x="gross_yield", y="city_pl",
+            df_yield, x="gross_yield", y="city_pl",
             orientation="h",
             color="gross_yield",
-            color_continuous_scale="RdYlGn",
-            text=df_yield["gross_yield"].apply(lambda x: f"{x:.2f}%"),
-            labels={"city_pl": "Miasto", "gross_yield": "Stopa zwrotu brutto (%)"},
-            title="Brutto stopa zwrotu z najmu (%)",
+            color_continuous_scale="Bluyl",
+            labels={"city_pl": "Miasto", "gross_yield": "ROI (%)"},
+            title="Rentowność najmu (Brutto ROI)",
         )
-        fig_yield.update_traces(textposition="outside")
-        fig_yield.update_layout(height=480, coloraxis_showscale=False, title_font_size=14)
+        fig_yield.update_layout(
+            height=480,
+            coloraxis_showscale=False,
+            title_font_size=14,
+            xaxis_showgrid=False,
+            yaxis_showgrid=False
+        )
         st.plotly_chart(apply_theme(fig_yield), use_container_width=True)
 
     with col_rv2:
         df_payback = combined.sort_values("payback_years", ascending=False)
         fig_payback = px.bar(
-            df_payback,
-            x="payback_years", y="city_pl",
+            df_payback, x="payback_years", y="city_pl",
             orientation="h",
             color="payback_years",
-            color_continuous_scale="RdYlGn_r",
-            text=df_payback["payback_years"].apply(lambda x: f"{x:.0f} lat"),
-            labels={"city_pl": "Miasto", "payback_years": "Okres zwrotu (lata)"},
-            title="Okres zwrotu z inwestycji (lata)",
+            color_continuous_scale="Mint",
+            labels={"city_pl": "Miasto", "payback_years": "Lata"},
+            title="Szacowany okres zwrotu",
         )
-        fig_payback.update_traces(textposition="outside")
-        fig_payback.update_layout(height=480, coloraxis_showscale=False, title_font_size=14)
+        fig_payback.update_layout(
+            height=480,
+            coloraxis_showscale=False,
+            title_font_size=14,
+            xaxis_showgrid=False,
+            yaxis_showgrid=False
+        )
         st.plotly_chart(apply_theme(fig_payback), use_container_width=True)
 
     st.markdown("---")
-    st.markdown('<h3 style="color: #3b82f6;">Trendy czynszów miesięcznych</h3>', unsafe_allow_html=True)
+    st.markdown('<p class="section-header">Trend czynszów najmu</p>', unsafe_allow_html=True)
 
-    rent_trend = (
-        rent_df[rent_df["city_pl"].isin(common_cities)]
-        .groupby(["month_key", "month_label", "city_pl"])["pricePerSqm"]
-        .median().reset_index()
+    col_sel, col_info = st.columns([2, 1])
+    with col_sel:
+        sel_rent_cities = st.multiselect("Porównaj miasta:", options=common_cities, default=common_cities[:5],
+                                         key="rent_cities")
+
+    if not sel_rent_cities: sel_rent_cities = common_cities[:5]
+
+    with col_info:
+        count_val = len(rent_df[rent_df["city_pl"].isin(sel_rent_cities)])
+        st.markdown(
+            f"<p style='text-align: right; color: #888; padding-top: 35px;'>Próba: <b>{count_val:,}</b> ofert</p>".replace(
+                ",", " "), unsafe_allow_html=True)
+
+    rent_trend = rent_df[rent_df["city_pl"].isin(sel_rent_cities)].groupby(["month_key", "month_label", "city_pl"])[
+        "pricePerSqm"].median().reset_index()
+    month_order = {k: i for i, k in enumerate(MONTH_NAMES.keys())}
+    rent_trend = rent_trend.sort_values(by="month_key", key=lambda x: x.map(month_order))
+
+    fig_trend = px.line(
+        rent_trend, x="month_label", y="pricePerSqm", color="city_pl",
+        labels={"month_label": "Miesiąc", "pricePerSqm": "zł/m²"},
+        title="Mediana czynszu / m² w czasie"
     )
-
-    month_order_map2 = {k: i for i, k in enumerate(MONTH_NAMES.keys())}
-    rent_trend["sort_idx"] = rent_trend["month_key"].map(month_order_map2)
-    rent_trend = rent_trend.sort_values("sort_idx")
-
-    default_cities = common_cities[:6] if len(common_cities) >= 6 else common_cities
-    sel_rent_cities = st.multiselect(
-        "Wybierz miasta (najem):",
-        options=common_cities,
-        default=default_cities,
-        key="rent_cities",
+    fig_trend.update_traces(line_width=3, marker=dict(size=6))
+    fig_trend.update_layout(
+        height=450,
+        showlegend=False,
+        margin=dict(r=120),
+        xaxis_showgrid=False,
+        yaxis_showgrid=False
     )
-    if not sel_rent_cities:
-        sel_rent_cities = default_cities
+    fig_trend.update_yaxes(rangemode="tozero")
 
-    fig_rent_trend = px.line(
-        rent_trend[rent_trend["city_pl"].isin(sel_rent_cities)],
-        x="month_label", y="pricePerSqm",
-        color="city_pl", markers=True,
-        labels={"month_label": "Miesiąc", "pricePerSqm": "Mediana czynszu/m² (zł)", "city_pl": "Miasto"},
-        title="Trend mediany czynszu/m² w czasie",
-    )
-    fig_rent_trend.update_traces(line_width=2.5, marker_size=8)
-    fig_rent_trend.update_layout(height=380, title_font_size=14)
-    st.plotly_chart(apply_theme(fig_rent_trend), use_container_width=True)
+    for trace in fig_trend.data:
+        fig_trend.add_annotation(
+            x=trace.x[-1], y=trace.y[-1], text=f" {trace.name}",
+            showarrow=False, xanchor="left", font=dict(size=12, color=trace.line.color)
+        )
+    st.plotly_chart(apply_theme(fig_trend), use_container_width=True)
 
     st.markdown("---")
-    st.markdown('<h3 style="color: #3b82f6;">Macierz porównawcza: zakup vs najem</h3>', unsafe_allow_html=True)
+    st.markdown('<p class="section-header">Macierz Inwestycyjna: Bariera wejścia vs Opłacalność</p>',
+                unsafe_allow_html=True)
 
-    fig_bubble = px.scatter(
+    med_x = combined["med_sale_psqm"].median()
+    med_y = combined["gross_yield"].median()
+
+    fig_matrix = px.scatter(
         combined,
-        x="med_sale_psqm", y="med_rent_psqm",
-        size="gross_yield", color="payback_years",
+        x="med_sale_psqm",
+        y="gross_yield",
         text="city_pl",
-        color_continuous_scale="RdYlGn_r",
-        size_max=40,
         labels={
-            "med_sale_psqm": "Mediana ceny sprzedaży/m² (zł)",
-            "med_rent_psqm": "Mediana czynszu/m² (zł)",
-            "gross_yield": "Stopa zwrotu (%)",
-            "payback_years": "Okres zwrotu (lata)",
+            "med_sale_psqm": "Cena zakupu / m² (zł)",
+            "gross_yield": "Stopa zwrotu brutto (%)",
         },
-        title="Cena zakupu vs Czynsz (rozmiar = stopa zwrotu, kolor = okres zwrotu)",
+        title="Podział rynków wg kosztu wejścia i rentowności"
     )
-    fig_bubble.update_traces(textposition="top center", textfont_size=11)
-    fig_bubble.update_layout(height=500, title_font_size=14)
-    st.plotly_chart(apply_theme(fig_bubble), use_container_width=True)
 
-    st.markdown("---")
-    st.markdown('<h3 style="color: #3b82f6;">Tabela inwestycyjna</h3>', unsafe_allow_html=True)
+    fig_matrix.update_traces(
+        marker=dict(size=14, color="#3b82f6", opacity=0.8, line=dict(width=1, color="white")),
+        textposition="top center",
+        textfont_size=12
+    )
 
-    display_combined = combined.sort_values("gross_yield", ascending=False).copy()
-    display_combined["med_sale_price"] = display_combined["med_sale_price"].apply(lambda x: f"{x / 1000:,.0f} tys. zł".replace(",", " "))
-    display_combined["med_sale_psqm"] = display_combined["med_sale_psqm"].apply(lambda x: f"{x:,.0f} zł/m²".replace(",", " "))
-    display_combined["med_rent"] = display_combined["med_rent"].apply(lambda x: f"{x:,.0f} zł/mies.".replace(",", " "))
-    display_combined["med_rent_psqm"] = display_combined["med_rent_psqm"].apply(lambda x: f"{x:.1f} zł/m²")
-    display_combined["gross_yield"] = display_combined["gross_yield"].apply(lambda x: f"{x:.2f}%")
-    display_combined["payback_years"] = display_combined["payback_years"].apply(lambda x: f"{x:.0f} lat")
+    fig_matrix.add_vline(x=med_x, line_width=1.5, line_dash="dash", line_color="#888888", opacity=0.6)
+    fig_matrix.add_hline(y=med_y, line_width=1.5, line_dash="dash", line_color="#888888", opacity=0.6)
 
-    display_combined = display_combined.rename(columns={
-        "city_pl": "Miasto",
-        "med_sale_price": "Mediana ceny",
-        "med_sale_psqm": "Cena/m²",
-        "med_rent": "Czynsz/mies.",
-        "med_rent_psqm": "Czynsz/m²",
-        "gross_yield": "Stopa zwrotu brutto",
-        "payback_years": "Okres zwrotu"
-    })
+    annotations = [
+        dict(x=0.02, y=0.98, text="<b>Tanie i Zyskowne</b><br><i>(Okazje)</i>", xanchor="left", yanchor="top",
+             color="#10b981"),
+        dict(x=0.98, y=0.98, text="<b>Drogie i Zyskowne</b><br><i>(Premium)</i>", xanchor="right", yanchor="top",
+             color="#f59e0b"),
+        dict(x=0.98, y=0.02, text="<b>Drogie i Niskodochodowe</b><br><i>(Ryzyko kapitałowe)</i>", xanchor="right",
+             yanchor="bottom", color="#ef4444"),
+        dict(x=0.02, y=0.02, text="<b>Tanie i Niskodochodowe</b><br><i>(Stagnacja)</i>", xanchor="left",
+             yanchor="bottom", color="#6b7280"),
+    ]
 
-    kolumny_tab = ["Miasto", "Mediana ceny", "Cena/m²", "Czynsz/mies.", "Czynsz/m²", "Stopa zwrotu brutto", "Okres zwrotu"]
-    st.dataframe(display_combined[kolumny_tab].reset_index(drop=True), use_container_width=True, height=420)
+    for ann in annotations:
+        fig_matrix.add_annotation(
+            xref="paper", yref="paper",
+            x=ann["x"], y=ann["y"],
+            text=ann["text"],
+            showarrow=False,
+            xanchor=ann["xanchor"], yanchor=ann["yanchor"],
+            font=dict(color=ann["color"], size=12),
+            bgcolor="rgba(128, 128, 128, 0.1)",
+            bordercolor=ann["color"],
+            borderwidth=1,
+            borderpad=6
+        )
+
+    fig_matrix.update_xaxes(rangemode="tozero", showgrid=False, zeroline=True, zerolinecolor="rgba(128,128,128,0.2)")
+    fig_matrix.update_yaxes(rangemode="tozero", showgrid=False, zeroline=True, zerolinecolor="rgba(128,128,128,0.2)")
+
+    fig_matrix.update_layout(
+        height=600,
+        margin=dict(t=50, b=50, l=50, r=50)
+    )
+
+    st.plotly_chart(apply_theme(fig_matrix), use_container_width=True)
+
+    st.markdown('<p class="section-header">Zestawienie szczegółowe</p>', unsafe_allow_html=True)
+    df_tab = combined.sort_values("gross_yield", ascending=False).copy()
+
+    fmt = lambda x: f"{x:,.0f}".replace(",", " ")
+    df_tab["med_sale_price"] = (df_tab["med_sale_price"] / 1000).apply(lambda x: f"{x:,.0f} tys. zł".replace(",", " "))
+    df_tab["med_sale_psqm"] = df_tab["med_sale_psqm"].apply(lambda x: f"{fmt(x)} zł")
+    df_tab["med_rent"] = df_tab["med_rent"].apply(lambda x: f"{fmt(x)} zł")
+    df_tab["gross_yield"] = df_tab["gross_yield"].apply(lambda x: f"{x:.2f}%")
+    df_tab["payback_years"] = df_tab["payback_years"].apply(lambda x: f"{x:.1f} lat")
+
+    df_tab.columns = ["Miasto", "Cena m²", "Mediana ceny", "Czynsz m²", "Mediana czynszu", "ROI", "Zwrot"]
+    st.dataframe(df_tab[["Miasto", "Mediana ceny", "Cena m²", "Mediana czynszu", "ROI", "Zwrot"]],
+                 use_container_width=True, hide_index=True)

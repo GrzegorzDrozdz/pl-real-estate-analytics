@@ -4,7 +4,6 @@ from config import PAPER_BG, PLOT_BG, GRID_COLOR, TEXT_COLOR
 
 
 def apply_theme(fig: go.Figure) -> go.Figure:
-    """Apply consistent dark theme to every Plotly figure."""
     fig.update_layout(
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PLOT_BG,

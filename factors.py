@@ -1,10 +1,23 @@
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
 from charts import apply_theme
 from config import CITY_COLORS, PRIMARY, WARNING, GRID_COLOR, PLOT_BG, PAPER_BG, TEXT_COLOR
+
+_AMENITIES = {
+    "hasParkingSpace": "Miejsce parkingowe",
+    "hasBalcony": "Balkon",
+    "hasElevator": "Winda",
+    "hasSecurity": "Ochrona",
+    "hasStorageRoom": "Komórka lokal.",
+}
+
+SUCCESS = "#10b981"
+DANGER = "#ef4444"
+
 
 def render(sale_df, sel_cities):
     if sale_df.empty:
@@ -31,89 +44,145 @@ def render(sale_df, sel_cities):
     corr_labels = [labels_pl.get(c, c) for c in corr_data.columns]
 
     if not corr_data.empty:
-        fig_corr = go.Figure(go.Heatmap(
-            z=corr_data.values,
-            x=corr_labels,
-            y=corr_labels,
-            colorscale="RdBu",
-            zmid=0,
-            text=[[f"{v:.2f}" for v in row] for row in corr_data.values],
-            texttemplate="%{text}",
-            textfont_size=9,
-            colorbar=dict(title="r"),
-        ))
-        fig_corr.update_layout(
-            title="Macierz korelacji Pearsona – cechy numeryczne",
-            height=580,
-            title_font_size=14,
-        )
-        st.plotly_chart(apply_theme(fig_corr), use_container_width=True)
+        col_m1, col_m2 = st.columns([3, 2])
+
+        with col_m1:
+            mask = np.triu(np.ones_like(corr_data, dtype=bool), k=0)
+            corr_masked = corr_data.mask(mask)
+            text_vals = [["" if pd.isna(v) else f"{v:.2f}" for v in row] for row in corr_masked.values]
+
+            fig_corr = go.Figure(go.Heatmap(
+                z=corr_masked.values,
+                x=corr_labels,
+                y=corr_labels,
+                colorscale="RdBu",
+                zmid=0,
+                text=text_vals,
+                texttemplate="%{text}",
+                textfont_size=10,
+                colorbar=dict(title="Wsp. r", thickness=15),
+                hoverinfo="x+y+z",
+            ))
+            fig_corr.update_layout(
+                title="Wzajemne korelacje cech (zależności)",
+                height=500,
+                title_font_size=14,
+                yaxis_autorange="reversed",
+                xaxis_showgrid=False,
+                yaxis_showgrid=False,
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(apply_theme(fig_corr), use_container_width=True)
+
+        with col_m2:
+            if "pricePerSqm" in corr_data.columns:
+                target_corr = corr_data["pricePerSqm"].drop("pricePerSqm").sort_values()
+                df_target = target_corr.reset_index()
+                df_target.columns = ["feature", "corr_value"]
+                df_target["feature_pl"] = df_target["feature"].map(labels_pl)
+
+                fig_bar = px.bar(
+                    df_target,
+                    x="corr_value",
+                    y="feature_pl",
+                    orientation="h",
+                    color="corr_value",
+                    color_continuous_scale="RdBu",
+                    color_continuous_midpoint=0,
+                    labels={"corr_value": "Siła wpływu (r)", "feature_pl": ""},
+                    title="Co najbardziej wpływa na Cenę/m²?"
+                )
+                fig_bar.update_traces(textposition="outside", cliponaxis=False)
+                fig_bar.update_layout(
+                    height=500,
+                    title_font_size=14,
+                    coloraxis_showscale=False,
+                    xaxis_title="Współczynnik korelacji (Pearson)",
+                    xaxis_showgrid=False,
+                    yaxis_showgrid=False,
+                    margin=dict(r=30)
+                )
+                st.plotly_chart(apply_theme(fig_bar), use_container_width=True)
 
     st.markdown("---")
+
     col_f1, col_f2 = st.columns(2)
 
     with col_f1:
         st.markdown('<p class="section-header">Metraż vs Cena całkowita</p>', unsafe_allow_html=True)
 
-        sel_city_scatter = st.selectbox(
-            "Miasto:",
-            options=["Wszystkie"] + list(sel_cities),
-            key="scatter_city",
-        )
+        if not sale_df.empty:
+            scatter_df = sale_df.copy()
+            q_sqm = scatter_df["squareMeters"].quantile(0.99)
+            q_price = scatter_df["price"].quantile(0.99)
+            scatter_df = scatter_df[(scatter_df["squareMeters"] < q_sqm) & (scatter_df["price"] < q_price)]
 
-        scatter_df = sale_df if sel_city_scatter == "Wszystkie" else sale_df[sale_df["city_pl"] == sel_city_scatter]
-        if not scatter_df.empty:
-            scatter_df = scatter_df.sample(min(2000, len(scatter_df)), random_state=42)
+            if "rooms" in scatter_df.columns:
+                scatter_df["Pokoje"] = scatter_df["rooms"].apply(
+                    lambda x: f"{int(x)} pok." if pd.notna(x) else "Inne"
+                )
+                scatter_df = scatter_df.sort_values("rooms")
+                color_col = "Pokoje"
+            else:
+                color_col = None
+
+            if len(scatter_df) > 3000:
+                scatter_df = scatter_df.sample(3000, random_state=42)
 
             fig_sc = px.scatter(
                 scatter_df,
-                x="squareMeters", y="price",
-                color="rooms",
-                color_continuous_scale="Turbo",
+                x="squareMeters",
+                y="price",
+                color=color_col,
                 opacity=0.6,
-                trendline="ols",
                 labels={
                     "squareMeters": "Metraż (m²)",
-                    "price": "Cena (zł)",
-                    "rooms": "Liczba pokoi",
+                    "price": "Cena całkowita (zł)",
                 },
-                title=f"Metraż vs Cena – {sel_city_scatter}",
+                title="Metraż vs Cena całkowita"
             )
-            fig_sc.update_layout(height=400, title_font_size=13)
+
+            fig_sc.update_layout(
+                height=450,
+                title_font_size=13,
+                xaxis_showgrid=False,
+                yaxis_showgrid=False
+            )
             st.plotly_chart(apply_theme(fig_sc), use_container_width=True)
 
     with col_f2:
-        st.markdown('<p class="section-header">Rozkład ceny/m² – histogram + KDE</p>', unsafe_allow_html=True)
+        st.markdown('<p class="section-header">Wpływ udogodnień na cenę</p>', unsafe_allow_html=True)
 
-        cities_hist = st.multiselect(
-            "Miasta do porównania:",
-            options=sel_cities,
-            default=sel_cities[:4] if len(sel_cities) >= 4 else sel_cities,
-            key="hist_cities",
-        )
+        rows = []
+        for col, label in _AMENITIES.items():
+            if col not in sale_df.columns:
+                continue
+            grp = sale_df.groupby(col)["pricePerSqm"].median()
+            if "yes" in grp.index and "no" in grp.index:
+                diff_pct = (grp["yes"] - grp["no"]) / grp["no"] * 100
+                rows.append({"Udogodnienie": label, "Różnica %": diff_pct})
 
-        if not cities_hist:
-            cities_hist = sel_cities[:4]
-
-        fig_hist = go.Figure()
-        for i, city in enumerate(cities_hist):
-            subset = sale_df[sale_df["city_pl"] == city]["pricePerSqm"].dropna()
-            fig_hist.add_trace(go.Histogram(
-                x=subset,
-                name=city,
-                opacity=0.55,
-                nbinsx=40,
-                marker_color=CITY_COLORS[i % len(CITY_COLORS)],
+        if rows:
+            df_am = pd.DataFrame(rows).sort_values("Różnica %", ascending=True)
+            fig_am = go.Figure(go.Bar(
+                y=df_am["Udogodnienie"],
+                x=df_am["Różnica %"],
+                orientation="h",
+                marker_color=[SUCCESS if x > 0 else DANGER for x in df_am["Różnica %"]],
+                textposition="outside",
             ))
-        fig_hist.update_layout(
-            barmode="overlay",
-            xaxis_title="Cena/m² (zł)",
-            yaxis_title="Liczba ofert",
-            title="Rozkład cen/m² – porównanie miast",
-            height=400,
-            title_font_size=13,
-        )
-        st.plotly_chart(apply_theme(fig_hist), use_container_width=True)
+            fig_am.update_layout(
+                title="Premia cenowa za udogodnienia (%)",
+                xaxis_title="Różnica w medianie ceny/m² względem braku udogodnienia",
+                height=400,
+                title_font_size=13,
+                xaxis_showgrid=False,
+                yaxis_showgrid=False,
+                margin=dict(t=50, b=50, l=150, r=50)
+            )
+            st.plotly_chart(apply_theme(fig_am), use_container_width=True)
+        else:
+            st.info("Brak wystarczających danych o udogodnieniach w obecnym filtrze.")
 
     st.markdown("---")
     st.markdown('<p class="section-header">Analiza piętra a cena</p>', unsafe_allow_html=True)
@@ -124,110 +193,35 @@ def render(sale_df, sel_cities):
         floor_stats = floor_df.groupby("floor")["pricePerSqm"].agg(["median", "count"]).reset_index()
         floor_stats.columns = ["Piętro", "Mediana ceny/m²", "Liczba ofert"]
 
-        col_fl1, col_fl2 = st.columns(2)
-
-        with col_fl1:
-            fig_floor = go.Figure()
-            fig_floor.add_trace(go.Bar(
-                x=floor_stats["Piętro"],
-                y=floor_stats["Mediana ceny/m²"],
-                name="Mediana ceny/m²",
-                marker_color=PRIMARY,
-                yaxis="y",
-            ))
-            fig_floor.add_trace(go.Scatter(
-                x=floor_stats["Piętro"],
-                y=floor_stats["Liczba ofert"],
-                name="Liczba ofert",
-                line=dict(color=WARNING, width=2),
-                mode="lines+markers",
-                yaxis="y2",
-            ))
-            fig_floor.update_layout(
-                title="Cena/m² i liczba ofert według piętra",
-                yaxis=dict(title="Mediana ceny/m² (zł)", gridcolor=GRID_COLOR),
-                yaxis2=dict(title="Liczba ofert", overlaying="y", side="right", gridcolor="rgba(0,0,0,0)"),
-                xaxis_title="Piętro",
-                height=400,
-                title_font_size=13,
-                legend=dict(x=0.01, y=0.99),
-            )
-            st.plotly_chart(apply_theme(fig_floor), use_container_width=True)
-
-        with col_fl2:
-            st.markdown('<p class="section-header">Własność a cena</p>', unsafe_allow_html=True)
-
-            ownership_stats = (
-                sale_df.groupby(["city_pl", "ownership"])["pricePerSqm"]
-                .median().reset_index()
-            )
-            ownership_stats = ownership_stats[ownership_stats["city_pl"].isin(sel_cities[:8])]
-            ownership_stats["ownership"] = ownership_stats["ownership"].map({
-                "condominium": "Odrębna własność",
-                "cooperative": "Spółdzielcze",
-            }).fillna(ownership_stats["ownership"])
-
-            fig_own = px.bar(
-                ownership_stats,
-                x="city_pl", y="pricePerSqm",
-                color="ownership",
-                barmode="group",
-                labels={"city_pl": "Miasto", "pricePerSqm": "Mediana ceny/m² (zł)", "ownership": "Forma własności"},
-                title="Cena/m² wg formy własności",
-            )
-            fig_own.update_layout(height=400, title_font_size=13)
-            st.plotly_chart(apply_theme(fig_own), use_container_width=True)
-
-    st.markdown("---")
-    st.markdown('<p class="section-header">Profil typowego mieszkania w każdym mieście</p>', unsafe_allow_html=True)
-
-    radar_cities = st.multiselect(
-        "Wybierz do 5 miast do porównania radarowego:",
-        options=sel_cities,
-        default=sel_cities[:5] if len(sel_cities) >= 5 else sel_cities,
-        key="radar_cities",
-    )
-    if not radar_cities:
-        radar_cities = sel_cities[:5]
-
-    radar_metrics = {
-        "pricePerSqm": "Cena/m²",
-        "squareMeters": "Metraż",
-        "rooms": "Pokoje",
-        "centreDistance": "Odl. centrum",
-        "buildYear": "Rok budowy",
-        "poiCount": "Liczba POI",
-    }
-
-    radar_data = sale_df[sale_df["city_pl"].isin(radar_cities)].groupby("city_pl")[list(radar_metrics.keys())].median()
-    if not radar_data.empty:
-        radar_norm = (radar_data - radar_data.min()) / (radar_data.max() - radar_data.min() + 1e-9)
-        radar_norm["centreDistance"] = 1 - radar_norm["centreDistance"]
-
-        fig_radar = go.Figure()
-        for i, city in enumerate(radar_cities):
-            if city in radar_norm.index:
-                vals = radar_norm.loc[city].tolist()
-                vals.append(vals[0])
-                labels = list(radar_metrics.values()) + [list(radar_metrics.values())[0]]
-                fig_radar.add_trace(go.Scatterpolar(
-                    r=vals, theta=labels,
-                    fill="toself",
-                    name=city,
-                    line_color=CITY_COLORS[i % len(CITY_COLORS)],
-                    fillcolor=CITY_COLORS[i % len(CITY_COLORS)],
-                    opacity=0.25,
-                ))
-        fig_radar.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[0, 1], gridcolor=GRID_COLOR),
-                angularaxis=dict(gridcolor=GRID_COLOR),
-                bgcolor=PLOT_BG,
-            ),
-            title="Radar: znormalizowany profil miast (im wyżej = lepiej)",
-            height=500,
+        fig_floor = go.Figure()
+        fig_floor.add_trace(go.Bar(
+            x=floor_stats["Piętro"],
+            y=floor_stats["Mediana ceny/m²"],
+            name="Mediana ceny/m²",
+            marker_color=PRIMARY,
+            yaxis="y",
+        ))
+        fig_floor.add_trace(go.Scatter(
+            x=floor_stats["Piętro"],
+            y=floor_stats["Liczba ofert"],
+            name="Liczba ofert",
+            line=dict(color=WARNING, width=2),
+            mode="lines",
+            yaxis="y2",
+        ))
+        fig_floor.update_layout(
+            title="Cena/m² i liczba ofert według piętra",
+            yaxis=dict(title="Mediana ceny/m² (zł)", showgrid=False),
+            yaxis2=dict(title="Liczba ofert", overlaying="y", side="right", showgrid=False),
+            xaxis=dict(title="Piętro", showgrid=False),
+            height=450,
             title_font_size=14,
-            paper_bgcolor=PAPER_BG,
-            font=dict(color=TEXT_COLOR),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.3,
+                xanchor="center",
+                x=0.5
+            ),
         )
-        st.plotly_chart(fig_radar, use_container_width=True)
+        st.plotly_chart(apply_theme(fig_floor), use_container_width=True)

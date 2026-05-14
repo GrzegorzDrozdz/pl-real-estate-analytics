@@ -25,40 +25,23 @@ def render(sale_df):
         .sort_values("median_psqm", ascending=True)
     )
 
-    col_a, col_b = st.columns([3, 2])
-
-    with col_a:
-        fig = px.bar(
-            city_stats, x="median_psqm", y="city_pl",
-            orientation="h",
-            color="median_psqm",
-            color_continuous_scale="Blues",
-            text=city_stats["median_psqm"].apply(lambda x: f"{x:,.0f} zł".replace(",", " ")),
-            labels={"city_pl": "Miasto", "median_psqm": "Mediana ceny/m²"},
-            title="Ranking miast wg mediany ceny za m²",
-        )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(coloraxis_showscale=False, height=500, title_font_size=14)
-        st.plotly_chart(apply_theme(fig), use_container_width=True)
-
-    with col_b:
-        fig2 = px.scatter(
-            city_stats,
-            x="median_sqm", y="median_psqm",
-            size="count", color="median_price",
-            text="city_pl",
-            color_continuous_scale="Viridis",
-            labels={
-                "median_sqm":   "Mediana metrażu (m²)",
-                "median_psqm":  "Mediana ceny/m²",
-                "count":        "Liczba ofert",
-                "median_price": "Mediana ceny (zł)",
-            },
-            title="Metraż vs Cena/m² (rozmiar = liczba ofert)",
-        )
-        fig2.update_traces(textposition="top center", textfont_size=10)
-        fig2.update_layout(height=500, title_font_size=14)
-        st.plotly_chart(apply_theme(fig2), use_container_width=True)
+    fig = px.bar(
+        city_stats, x="median_psqm", y="city_pl",
+        orientation="h",
+        color="median_psqm",
+        color_continuous_scale="Blues",
+        labels={"city_pl": "Miasto", "median_psqm": "Mediana ceny/m²"},
+        title="Ranking miast wg mediany ceny za m²",
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(
+        coloraxis_showscale=False,
+        height=500,
+        title_font_size=14,
+        xaxis_showgrid=False,
+        yaxis_showgrid=False
+    )
+    st.plotly_chart(apply_theme(fig), use_container_width=True)
 
     st.markdown("---")
     st.markdown('<p class="section-header">Rozkład cen w miastach</p>', unsafe_allow_html=True)
@@ -89,6 +72,8 @@ def render(sale_df):
         yaxis_title="Cena za m² (zł)",
         height=420,
         title_font_size=14,
+        xaxis_showgrid=False,
+        yaxis_showgrid=False
     )
     st.plotly_chart(apply_theme(fig3), use_container_width=True)
 

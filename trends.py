@@ -1,3 +1,4 @@
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
@@ -29,97 +30,108 @@ def render(sale_df, sale_df_full, sel_months: list[str], all_cities: list[str]):
         .index.tolist()
     )
 
-    col_controls, col_chart = st.columns([1, 3])
+    col_sel, col_info = st.columns([2, 1])
 
-    with col_controls:
+    with col_sel:
         sel_trend_cities = st.multiselect(
-            "Pokaż miasta:",
+            "Wybierz miasta do analizy trendu:",
             options=all_cities,
             default=top_cities[:6] if len(top_cities) >= 6 else top_cities,
             key="trend_cities",
         ) or top_cities[:6]
 
-        st.checkbox("Pokaż trend (LOWESS)", value=True, key="show_lowess")
-
-    with col_chart:
-        fig_trend = px.line(
-            trend[trend["city_pl"].isin(sel_trend_cities)],
-            x="month_label", y="median_psqm",
-            color="city_pl",
-            markers=True,
-            labels={"month_label": "Miesiąc", "median_psqm": "Mediana ceny/m² (zł)", "city_pl": "Miasto"},
-            title="Trendy mediany ceny/m² w czasie",
+    with col_info:
+        count_val = len(sale_df[sale_df["city_pl"].isin(sel_trend_cities)])
+        st.markdown(
+            f"<p style='text-align: right; color: gray; padding-top: 35px;'>Analiza <b>{count_val:,}</b> ofert sprzedaży</p>".replace(
+                ",", " "),
+            unsafe_allow_html=True
         )
-        fig_trend.update_traces(line_width=2.5, marker_size=8)
-        fig_trend.update_layout(height=400, title_font_size=14)
-        st.plotly_chart(apply_theme(fig_trend), use_container_width=True)
+
+    trend_filtered = trend[trend["city_pl"].isin(sel_trend_cities)]
+    fig_trend = px.line(
+        trend_filtered,
+        x="month_label", y="median_psqm",
+        color="city_pl",
+        labels={"month_label": "Miesiąc", "median_psqm": "Mediana ceny/m² (zł)", "city_pl": "Miasto"},
+        title="Zmiana mediany ceny/m² w czasie",
+    )
+
+    fig_trend.update_traces(line_width=2.5, marker=dict(size=8))
+    fig_trend.update_layout(
+        height=400,
+        title_font_size=14,
+        showlegend=False,
+        margin=dict(r=80),
+        xaxis_showgrid=False,
+        yaxis_showgrid=False
+    )
+
+    for trace in fig_trend.data:
+        if trace.x is not None and len(trace.x) > 0:
+            fig_trend.add_annotation(
+                x=trace.x[-1], y=trace.y[-1],
+                text=f"<b>{trace.name}</b>",
+                showarrow=False, font=dict(color=trace.line.color, size=12),
+                xanchor="left", xshift=8
+            )
+
+    st.plotly_chart(apply_theme(fig_trend), use_container_width=True)
 
     st.markdown("---")
-    col_t3, col_t4 = st.columns(2)
 
-    with col_t3:
-        st.markdown('<p class="section-header">Zmiana cen: pierwszy vs ostatni miesiąc (%)</p>', unsafe_allow_html=True)
-        _price_change_chart(sale_df, sale_df_full, sel_months)
+    st.markdown('<p class="section-header">Zmiana cen: pierwszy vs ostatni miesiąc (%)</p>', unsafe_allow_html=True)
 
-    with col_t4:
-        st.markdown('<p class="section-header">Liczba ofert w czasie</p>', unsafe_allow_html=True)
-        _supply_chart(sale_df, sel_trend_cities)
-
-    st.markdown("---")
-    st.markdown('<p class="section-header">Heatmapa cen: miasto × miesiąc</p>', unsafe_allow_html=True)
-    _heatmap(sale_df)
-
-
-def _price_change_chart(sale_df, sale_df_full, sel_months):
     all_months = sorted(sale_df_full["month_key"].unique())
     first_m = sel_months[0] if sel_months else all_months[0]
-    last_m  = sel_months[-1] if sel_months else all_months[-1]
+    last_m = sel_months[-1] if sel_months else all_months[-1]
 
     first_prices = sale_df_full[sale_df_full["month_key"] == first_m].groupby("city_pl")["pricePerSqm"].median()
-    last_prices  = sale_df_full[sale_df_full["month_key"] == last_m].groupby("city_pl")["pricePerSqm"].median()
+    last_prices = sale_df_full[sale_df_full["month_key"] == last_m].groupby("city_pl")["pricePerSqm"].median()
 
     change = pd.DataFrame({"first": first_prices, "last": last_prices}).dropna()
     change["change_pct"] = (change["last"] - change["first"]) / change["first"] * 100
-    change = change.reset_index().sort_values("change_pct", ascending=True)
-    change = change[change["city_pl"].isin(sale_df["city_pl"].unique())]
+    change = change.reset_index().sort_values("last", ascending=True)
+    change = change[change["city_pl"].isin(sel_trend_cities)]
 
-    fig = go.Figure(go.Bar(
-        y=change["city_pl"],
-        x=change["change_pct"],
-        orientation="h",
-        marker_color=[SUCCESS if x > 0 else DANGER for x in change["change_pct"]],
-        text=change["change_pct"].apply(lambda x: f"{x:+.1f}%"),
-        textposition="outside",
-    ))
-    title = f"Zmiana ceny/m² ({MONTH_NAMES.get(first_m, first_m)} → {MONTH_NAMES.get(last_m, last_m)})"
-    fig.update_layout(xaxis_title="Zmiana (%)", height=380, title=title, title_font_size=13)
-    st.plotly_chart(apply_theme(fig), use_container_width=True)
+    fig_change = go.Figure()
+    for i, row in change.iterrows():
+        color = SUCCESS if row["change_pct"] > 0 else DANGER
+        fig_change.add_trace(go.Scatter(
+            x=[row["first"], row["last"]], y=[row["city_pl"], row["city_pl"]],
+            mode="markers+lines",
+            line=dict(color=color, width=4),
+            marker=dict(color=color, size=8),
+            showlegend=False,
+        ))
+        fig_change.add_annotation(
+            x=row["last"], y=row["city_pl"],
+            text=f"<b>{row['change_pct']:+.1f}%</b>",
+            showarrow=False, font=dict(color=color, size=11),
+            xanchor="left" if row["change_pct"] > 0 else "right",
+            xshift=10 if row["change_pct"] > 0 else -10
+        )
 
-
-def _supply_chart(sale_df, sel_trend_cities):
-    supply = (
-        sale_df[sale_df["city_pl"].isin(sel_trend_cities[:6])]
-        .groupby(["month_key", "month_label", "city_pl"])["price"]
-        .count().reset_index(name="count")
+    fig_change.update_layout(
+        title=f"Wzrost/spadek ceny ({MONTH_NAMES.get(first_m, first_m)} → {MONTH_NAMES.get(last_m, last_m)})",
+        xaxis_title="Cena zł/m²",
+        height=min(600, 150 + len(change) * 30),
+        title_font_size=14,
+        margin=dict(r=50),
+        xaxis_showgrid=False,
+        yaxis_showgrid=False
     )
-    supply["sort_idx"] = supply["month_key"].map(MONTH_ORDER)
-    supply = supply.sort_values("sort_idx")
+    st.plotly_chart(apply_theme(fig_change), use_container_width=True)
 
-    fig = px.bar(
-        supply, x="month_label", y="count", color="city_pl",
-        barmode="stack",
-        labels={"month_label": "Miesiąc", "count": "Liczba ofert", "city_pl": "Miasto"},
-        title="Podaż mieszkań w czasie",
-    )
-    fig.update_layout(height=380, title_font_size=13)
-    st.plotly_chart(apply_theme(fig), use_container_width=True)
+    st.markdown("---")
 
+    st.markdown('<p class="section-header">Heatmapa cen: miasto × miesiąc</p>', unsafe_allow_html=True)
 
-def _heatmap(sale_df):
-    pivot = sale_df.groupby(["city_pl", "month_key"])["pricePerSqm"].median().unstack()
+    heatmap_df = sale_df[sale_df["city_pl"].isin(sel_trend_cities)]
+    pivot = heatmap_df.groupby(["city_pl", "month_key"])["pricePerSqm"].median().unstack()
     col_labels = [MONTH_NAMES.get(m, m) for m in pivot.columns]
 
-    fig = go.Figure(go.Heatmap(
+    fig_heat = go.Figure(go.Heatmap(
         z=pivot.values,
         x=col_labels,
         y=pivot.index.tolist(),
@@ -129,14 +141,11 @@ def _heatmap(sale_df):
         texttemplate="%{text}",
         textfont_size=10,
     ))
-    fig.update_layout(
-        title="Heatmapa mediany ceny/m² (zł) – miasto × miesiąc",
+    fig_heat.update_layout(
+        title="Rozkład mediany ceny/m² w czasie",
         height=500,
         title_font_size=14,
+        xaxis_showgrid=False,
+        yaxis_showgrid=False
     )
-    st.plotly_chart(apply_theme(fig), use_container_width=True)
-
-
-# pandas is needed inside this module but imported at the top of the file above –
-# add the missing import here cleanly
-import pandas as pd  # noqa: E402 (kept at bottom to not clutter the top-level imports)
+    st.plotly_chart(apply_theme(fig_heat), use_container_width=True)
