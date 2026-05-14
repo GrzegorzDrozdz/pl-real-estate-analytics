@@ -69,6 +69,21 @@ _CSS = """
     h1, h2, h3 { color: #f1f5f9; }
     p  { color: #cbd5e1; }
     hr { border-color: #2d3748; }
+    
+    /* WYWALENIE PASKA I MENU STREAMLITA */
+    [data-testid="stHeader"] {
+        visibility: hidden;
+        height: 0%;
+    }
+    
+    #MainMenu {
+        visibility: hidden;
+    }
+    
+    footer {
+        visibility: hidden;
+    }
+
 </style>
 """
 

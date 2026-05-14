@@ -1,0 +1,18 @@
+[theme]
+# Szmaragdowa zieleń (kojarzy się ze wzrostem / pieniędzmi)
+primaryColor = "#10b981"
+
+# Ciemny, chłodny łupek
+backgroundColor = "#0f172a"
+
+# Nieco jaśniejszy łupek (świetnie oddziela panele)
+secondaryBackgroundColor = "#1e293b"
+
+# Chłodna biel
+textColor = "#f8fafc"
+
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false
